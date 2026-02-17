@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Atlas · Mi Mapa de Viajes</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+
+  <style>
+    :root {
+      --bg:        #0e0f11;
+      --surface:   #16181c;
+      --border:    #2a2d35;
+      --land:      #2e3340;
+      --land-hover:#4a5068;
+      --visited:   #c9a96e;
+      --visited-h: #e0c28a;
+      --text:      #e8e2d9;
+      --muted:     #6b6f7a;
+      --ocean:     #111318;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+      z-index: 10;
+      gap: 24px;
+    }
+
+    .logo {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      flex-shrink: 0;
+    }
+    .logo span { color: var(--visited); }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      flex: 1;
+      justify-content: flex-end;
+    }
+
+    .stats {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .stat { text-align: right; }
+
+    .stat-number {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.55rem;
+      font-weight: 700;
+      color: var(--visited);
+      line-height: 1;
+    }
+
+    .stat-label {
+      font-size: 0.62rem;
+      font-weight: 300;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    .divider { width: 1px; height: 36px; background: var(--border); flex-shrink: 0; }
+
+    /* ── Progress bar ── */
+    .progress-wrap {
+      flex: 1;
+      max-width: 340px;
+    }
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 7px;
+    }
+
+    .progress-label {
+      font-size: 0.62rem;
+      font-weight: 300;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .progress-pct {
+      font-family: 'Playfair Display', serif;
+      font-size: 0.92rem;
+      font-weight: 700;
+      color: var(--visited);
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 5px;
+      background: var(--border);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #a07840, #c9a96e, #e0c28a);
+      border-radius: 99px;
+      width: 0%;
+      transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ── Map container ── */
+    #map-wrapper {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: var(--ocean);
+      cursor: grab;
+    }
+
+    #map-wrapper:active { cursor: grabbing; }
+    #map-svg { width: 100%; height: 100%; display: block; }
+
+    .country {
+      fill: var(--land);
+      stroke: var(--bg);
+      stroke-width: 0.4px;
+      transition: fill 0.18s ease;
+      cursor: pointer;
+    }
+
+    .country:hover         { fill: var(--land-hover); }
+    .country.visited       { fill: var(--visited); }
+    .country.visited:hover { fill: var(--visited-h); }
+
+    /* ── Tooltip ── */
+    #tooltip {
+      position: fixed;
+      pointer-events: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      color: var(--text);
+      z-index: 999;
+      opacity: 0;
+      transition: opacity 0.12s ease;
+      white-space: nowrap;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+
+    #tooltip.show { opacity: 1; }
+
+    .tip-name {
+      font-family: 'Playfair Display', serif;
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .tip-status {
+      font-size: 0.67rem;
+      font-weight: 300;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-top: 3px;
+    }
+
+    .tip-status.v  { color: var(--visited); }
+    .tip-status.nv { color: var(--muted); }
+
+    /* ── Footer ── */
+    footer {
+      padding: 9px 28px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    footer p { font-size: 0.67rem; color: var(--muted); letter-spacing: 0.08em; }
+
+    .btn-reset {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.67rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 5px 13px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .btn-reset:hover { color: var(--text); border-color: var(--muted); }
+
+    /* ── Loading ── */
+    #loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--ocean);
+      z-index: 20;
+    }
+
+    .spinner {
+      width: 36px; height: 36px;
+      border: 2px solid var(--border);
+      border-top-color: var(--visited);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 14px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { font-size: 0.74rem; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 58px;
+      left: 50%;
+      transform: translateX(-50%) translateY(8px);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 0.78rem;
+      padding: 8px 18px;
+      border-radius: 6px;
+      opacity: 0;
+      transition: opacity 0.2s, transform 0.2s;
+      z-index: 500;
+      pointer-events: none;
+      white-space: nowrap;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Zoom controls ── */
+    .zoom-controls {
+      position: absolute;
+      bottom: 20px; right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      z-index: 10;
+    }
+
+    .zoom-btn {
+      width: 32px; height: 32px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 1.1rem;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, border-color 0.15s;
+      line-height: 1;
+    }
+
+    .zoom-btn:hover { background: var(--border); border-color: var(--muted); }
+
+    /* ── Legend ── */
+    .legend {
+      position: absolute;
+      bottom: 20px; left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      z-index: 10;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.67rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .legend-dot { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <div class="logo">Atlas<span>.</span></div>
+
+    <div class="header-right">
+      <!-- Barra de progreso -->
+      <div class="progress-wrap">
+        <div class="progress-header">
+          <span class="progress-label">Mundo explorado</span>
+          <span class="progress-pct" id="count-pct">0%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Contadores -->
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-number" id="count-visited">0</div>
+          <div class="stat-label">Visitados</div>
+        </div>
+        <div class="divider"></div>
+        <div class="stat">
+          <div class="stat-number" id="count-total">—</div>
+          <div class="stat-label">Total países</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div id="map-wrapper">
+    <div id="loading">
+      <div class="spinner"></div>
+      <p>Cargando mapa…</p>
+    </div>
+    <svg id="map-svg"></svg>
+
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#2e3340;"></div>
+        No visitado
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#c9a96e;"></div>
+        Visitado
+      </div>
+    </div>
+
+    <div class="zoom-controls">
+      <button class="zoom-btn" id="btn-zoom-in"    title="Acercar">+</button>
+      <button class="zoom-btn" id="btn-zoom-reset" title="Restablecer" style="font-size:0.72rem;">⌂</button>
+      <button class="zoom-btn" id="btn-zoom-out"   title="Alejar">−</button>
+    </div>
+  </div>
+
+  <footer>
+    <p>Haz clic en un país para marcarlo como visitado · Los datos se guardan automáticamente en tu navegador</p>
+    <button class="btn-reset" id="btn-reset">Resetear todo</button>
+  </footer>
+
+  <div id="tooltip">
+    <div class="tip-name"   id="tip-name"></div>
+    <div class="tip-status" id="tip-status"></div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    // ─────────────────────────────────────────────────────────────────────────
+    // DICCIONARIO COMPLETO: código numérico ISO 3166-1 → nombre en español
+    // world-atlas usa códigos numéricos; normalizamos quitando ceros a la izquierda
+    // ─────────────────────────────────────────────────────────────────────────
+    const NAMES = {
+      "4":   "Afganistán",
+      "8":   "Albania",
+      "12":  "Argelia",
+      "16":  "Samoa Americana",
+      "20":  "Andorra",
+      "24":  "Angola",
+      "28":  "Antigua y Barbuda",
+      "31":  "Azerbaiyán",
+      "32":  "Argentina",
+      "36":  "Australia",
+      "40":  "Austria",
+      "44":  "Bahamas",
+      "48":  "Baréin",
+      "50":  "Bangladés",
+      "51":  "Armenia",
+      "52":  "Barbados",
+      "56":  "Bélgica",
+      "60":  "Bermudas",
+      "64":  "Bután",
+      "68":  "Bolivia",
+      "70":  "Bosnia y Herzegovina",
+      "72":  "Botsuana",
+      "76":  "Brasil",
+      "84":  "Belice",
+      "86":  "Territorio Británico del Océano Índico",
+      "90":  "Islas Salomón",
+      "96":  "Brunéi",
+      "100": "Bulgaria",
+      "104": "Myanmar",
+      "108": "Burundi",
+      "112": "Bielorrusia",
+      "116": "Camboya",
+      "120": "Camerún",
+      "124": "Canadá",
+      "132": "Cabo Verde",
+      "136": "Islas Caimán",
+      "140": "República Centroafricana",
+      "144": "Sri Lanka",
+      "148": "Chad",
+      "152": "Chile",
+      "156": "China",
+      "158": "Taiwán",
+      "162": "Isla de Navidad",
+      "166": "Islas Cocos",
+      "170": "Colombia",
+      "174": "Comoras",
+      "175": "Mayotte",
+      "178": "República del Congo",
+      "180": "República Democrática del Congo",
+      "184": "Islas Cook",
+      "188": "Costa Rica",
+      "191": "Croacia",
+      "192": "Cuba",
+      "196": "Chipre",
+      "203": "República Checa",
+      "204": "Benín",
+      "208": "Dinamarca",
+      "212": "Dominica",
+      "214": "República Dominicana",
+      "218": "Ecuador",
+      "222": "El Salvador",
+      "226": "Guinea Ecuatorial",
+      "231": "Etiopía",
+      "232": "Eritrea",
+      "233": "Estonia",
+      "234": "Islas Feroe",
+      "238": "Islas Malvinas",
+      "239": "Georgia del Sur",
+      "242": "Fiyi",
+      "246": "Finlandia",
+      "248": "Åland",
+      "250": "Francia",
+      "258": "Polinesia Francesa",
+      "260": "Tierras Australes Francesas",
+      "262": "Yibuti",
+      "266": "Gabón",
+      "268": "Georgia",
+      "270": "Gambia",
+      "275": "Palestina",
+      "276": "Alemania",
+      "288": "Ghana",
+      "292": "Gibraltar",
+      "296": "Kiribati",
+      "300": "Grecia",
+      "304": "Groenlandia",
+      "308": "Granada",
+      "312": "Guadalupe",
+      "316": "Guam",
+      "320": "Guatemala",
+      "324": "Guinea",
+      "328": "Guyana",
+      "332": "Haití",
+      "334": "Islas Heard y McDonald",
+      "336": "Ciudad del Vaticano",
+      "340": "Honduras",
+      "344": "Hong Kong",
+      "348": "Hungría",
+      "352": "Islandia",
+      "356": "India",
+      "360": "Indonesia",
+      "364": "Irán",
+      "368": "Iraq",
+      "372": "Irlanda",
+      "376": "Israel",
+      "380": "Italia",
+      "384": "Costa de Marfil",
+      "388": "Jamaica",
+      "392": "Japón",
+      "398": "Kazajistán",
+      "400": "Jordania",
+      "404": "Kenia",
+      "408": "Corea del Norte",
+      "410": "Corea del Sur",
+      "414": "Kuwait",
+      "417": "Kirguistán",
+      "418": "Laos",
+      "422": "Líbano",
+      "426": "Lesoto",
+      "428": "Letonia",
+      "430": "Liberia",
+      "434": "Libia",
+      "438": "Liechtenstein",
+      "440": "Lituania",
+      "442": "Luxemburgo",
+      "446": "Macao",
+      "450": "Madagascar",
+      "454": "Malaui",
+      "458": "Malasia",
+      "462": "Maldivas",
+      "466": "Malí",
+      "470": "Malta",
+      "474": "Martinica",
+      "478": "Mauritania",
+      "480": "Mauricio",
+      "484": "México",
+      "492": "Mónaco",
+      "496": "Mongolia",
+      "498": "Moldavia",
+      "499": "Montenegro",
+      "500": "Montserrat",
+      "504": "Marruecos",
+      "508": "Mozambique",
+      "516": "Namibia",
+      "520": "Nauru",
+      "524": "Nepal",
+      "528": "Países Bajos",
+      "531": "Curazao",
+      "533": "Aruba",
+      "540": "Nueva Caledonia",
+      "548": "Vanuatu",
+      "554": "Nueva Zelanda",
+      "558": "Nicaragua",
+      "562": "Níger",
+      "566": "Nigeria",
+      "570": "Niue",
+      "574": "Isla Norfolk",
+      "578": "Noruega",
+      "580": "Islas Marianas del Norte",
+      "581": "Islas Menores de EE. UU.",
+      "583": "Micronesia",
+      "584": "Islas Marshall",
+      "585": "Palaos",
+      "586": "Pakistán",
+      "591": "Panamá",
+      "598": "Papúa Nueva Guinea",
+      "600": "Paraguay",
+      "604": "Perú",
+      "608": "Filipinas",
+      "612": "Islas Pitcairn",
+      "616": "Polonia",
+      "620": "Portugal",
+      "624": "Guinea-Bisáu",
+      "626": "Timor Oriental",
+      "630": "Puerto Rico",
+      "634": "Catar",
+      "638": "Reunión",
+      "642": "Rumanía",
+      "643": "Rusia",
+      "646": "Ruanda",
+      "654": "Santa Elena",
+      "659": "San Cristóbal y Nieves",
+      "660": "Anguila",
+      "662": "Santa Lucía",
+      "666": "San Pedro y Miquelón",
+      "670": "San Vicente y las Granadinas",
+      "674": "San Marino",
+      "678": "Santo Tomé y Príncipe",
+      "682": "Arabia Saudita",
+      "686": "Senegal",
+      "688": "Serbia",
+      "690": "Seychelles",
+      "694": "Sierra Leona",
+      "702": "Singapur",
+      "703": "Eslovaquia",
+      "704": "Vietnam",
+      "705": "Eslovenia",
+      "706": "Somalia",
+      "710": "Sudáfrica",
+      "716": "Zimbabue",
+      "724": "España",
+      "728": "Sudán del Sur",
+      "729": "Sudán",
+      "740": "Surinam",
+      "744": "Svalbard y Jan Mayen",
+      "748": "Suazilandia",
+      "752": "Suecia",
+      "756": "Suiza",
+      "760": "Siria",
+      "762": "Tayikistán",
+      "764": "Tailandia",
+      "768": "Togo",
+      "772": "Tokelau",
+      "776": "Tonga",
+      "780": "Trinidad y Tobago",
+      "784": "Emiratos Árabes Unidos",
+      "788": "Túnez",
+      "792": "Turquía",
+      "795": "Turkmenistán",
+      "796": "Islas Turcas y Caicos",
+      "798": "Tuvalu",
+      "800": "Uganda",
+      "804": "Ucrania",
+      "807": "Macedonia del Norte",
+      "818": "Egipto",
+      "826": "Reino Unido",
+      "831": "Guernesey",
+      "832": "Jersey",
+      "833": "Isla de Man",
+      "834": "Tanzania",
+      "840": "Estados Unidos",
+      "850": "Islas Vírgenes (EE. UU.)",
+      "854": "Burkina Faso",
+      "858": "Uruguay",
+      "860": "Uzbekistán",
+      "862": "Venezuela",
+      "876": "Wallis y Futuna",
+      "882": "Samoa",
+      "887": "Yemen",
+      "894": "Zambia",
+    };
+
+    // Normaliza el id numérico: "076" → "76"
+    function getCountryName(id) {
+      const key = String(parseInt(String(id), 10));
+      return NAMES[key] || `País (${id})`;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    const STORAGE_KEY  = 'atlas_visited_countries';
+    const WORLD_URL    = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
+
+    let visited        = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'));
+    let totalCountries = 0;
+
+    const loadingEl    = document.getElementById('loading');
+    const tooltip      = document.getElementById('tooltip');
+    const tipName      = document.getElementById('tip-name');
+    const tipStatus    = document.getElementById('tip-status');
+    const toastEl      = document.getElementById('toast');
+    const countV       = document.getElementById('count-visited');
+    const countT       = document.getElementById('count-total');
+    const countPct     = document.getElementById('count-pct');
+    const progressFill = document.getElementById('progress-fill');
+
+    // ── Toast ──────────────────────────────────────────────────────────────
+    let toastTimer;
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1900);
+    }
+
+    // ── Guardar y actualizar estadísticas ──────────────────────────────────
+    function save() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([...visited]));
+    }
+
+    function updateStats() {
+      const n   = visited.size;
+      const pct = totalCountries > 0 ? (n / totalCountries) * 100 : 0;
+      const display = pct === 0 ? '0%'
+                    : pct < 0.1 ? '<0.1%'
+                    : (Math.round(pct * 10) / 10).toFixed(1).replace('.0', '') + '%';
+
+      countV.textContent = n;
+      countT.textContent = totalCountries || '—';
+      countPct.textContent = display;
+      progressFill.style.width = Math.min(pct, 100) + '%';
+    }
+
+    // ── Inicializar mapa ───────────────────────────────────────────────────
+    async function initMap() {
+      let world;
+      try {
+        const res = await fetch(WORLD_URL);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        world = await res.json();
+      } catch (e) {
+        loadingEl.innerHTML = `<p style="color:#c9a96e;font-size:0.82rem;padding:20px;text-align:center;line-height:1.6;">
+          No se pudo cargar el mapa.<br>Por favor verifica tu conexión a internet.</p>`;
+        return;
+      }
+
+      const countries   = topojson.feature(world, world.objects.countries);
+      totalCountries    = countries.features.length;
+
+      const wrapper = document.getElementById('map-wrapper');
+      const W = wrapper.clientWidth;
+      const H = wrapper.clientHeight;
+
+      const svg = d3.select('#map-svg').attr('width', W).attr('height', H);
+
+      const projection = d3.geoNaturalEarth1()
+        .scale(W / 6.2)
+        .translate([W / 2, H / 2]);
+
+      const path = d3.geoPath().projection(projection);
+
+      const zoom = d3.zoom()
+        .scaleExtent([1, 8])
+        .on('zoom', e => g.attr('transform', e.transform));
+
+      svg.call(zoom);
+      svg.on('mousedown.tooltip', () => tooltip.classList.remove('show'));
+
+      const g = svg.append('g');
+
+      // Fondo océano
+      g.append('rect')
+        .attr('width', W * 10).attr('height', H * 10)
+        .attr('x', -W * 4).attr('y', -H * 4)
+        .attr('fill', 'var(--ocean)');
+
+      // Dibujar países
+      g.selectAll('.country')
+        .data(countries.features)
+        .join('path')
+        .attr('class', d => `country${visited.has(String(d.id)) ? ' visited' : ''}`)
+        .attr('d', path)
+        .on('mousemove', function (event, d) {
+          const name = getCountryName(d.id);
+          const isV  = visited.has(String(d.id));
+          tipName.textContent   = name;
+          tipStatus.textContent = isV ? '✓ Visitado' : 'Clic para marcar';
+          tipStatus.className   = `tip-status ${isV ? 'v' : 'nv'}`;
+          tooltip.style.left    = (event.clientX + 14) + 'px';
+          tooltip.style.top     = (event.clientY - 10) + 'px';
+          tooltip.classList.add('show');
+        })
+        .on('mouseleave', () => tooltip.classList.remove('show'))
+        .on('click', function (event, d) {
+          event.stopPropagation();
+          const id   = String(d.id);
+          const name = getCountryName(d.id);
+          if (visited.has(id)) {
+            visited.delete(id);
+            d3.select(this).classed('visited', false);
+            showToast(`${name} desmarcado`);
+          } else {
+            visited.add(id);
+            d3.select(this).classed('visited', true);
+            showToast(`¡${name} añadido!`);
+          }
+          const isV = visited.has(id);
+          tipStatus.textContent = isV ? '✓ Visitado' : 'Clic para marcar';
+          tipStatus.className   = `tip-status ${isV ? 'v' : 'nv'}`;
+          save();
+          updateStats();
+        });
+
+      // Botones de zoom
+      document.getElementById('btn-zoom-in').addEventListener('click', () =>
+        svg.transition().duration(280).call(zoom.scaleBy, 1.5));
+      document.getElementById('btn-zoom-out').addEventListener('click', () =>
+        svg.transition().duration(280).call(zoom.scaleBy, 1 / 1.5));
+      document.getElementById('btn-zoom-reset').addEventListener('click', () =>
+        svg.transition().duration(380).call(zoom.transform, d3.zoomIdentity));
+
+      // Resetear todo
+      document.getElementById('btn-reset').addEventListener('click', () => {
+        if (!confirm('¿Resetear todos los países visitados?')) return;
+        visited.clear();
+        d3.selectAll('.country').classed('visited', false);
+        save();
+        updateStats();
+        showToast('Mapa reseteado');
+      });
+
+      // Redimensionar ventana
+      window.addEventListener('resize', () => {
+        const nW = wrapper.clientWidth;
+        const nH = wrapper.clientHeight;
+        svg.attr('width', nW).attr('height', nH);
+        projection.scale(nW / 6.2).translate([nW / 2, nH / 2]);
+        g.selectAll('.country').attr('d', path);
+      });
+
+      loadingEl.style.display = 'none';
+      updateStats();
+    }
+
+    initMap();
+  </script>
+</body>
+</html>
