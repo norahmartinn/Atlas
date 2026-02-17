@@ -2,9 +2,6 @@
 
 Aplicación web para registrar los países que has visitado, directamente en un mapa del mundo interactivo.
 
-## ¿Cómo usarla?
-
-Descarga `travel-map.html` y ábrelo con doble clic en tu navegador. Sin instalación, sin servidor, sin registro.
 
 ## Funcionalidades
 
@@ -23,6 +20,5 @@ Descarga `travel-map.html` y ábrelo con doble clic en tu navegador. Sin instala
 - LocalStorage — persistencia de datos
 
 ## Demo
+Prueba la aplicación web: https://norahmartinn.github.io/Atlas/
 
-Si has activado GitHub Pages, la app estará disponible en:
-`https://tuusuario.github.io/atlas-travel-map`
